@@ -6,6 +6,27 @@ from boxsdk import Client
 from boxsdk.exception import BoxAPIException
 from boxsdk.object.collaboration import CollaborationRole
 from auth import authenticate
+import sched, time
+
+scheduler = sched.scheduler(time.time, time.sleep)
+
+
+# other: http://stackoverflow.com/questions/3222962/limit-the-rate-of-requests-to-an-api-in-a-cgi-script
+# other: https://pypi.python.org/pypi/ratelimit
+# this: http://code.activestate.com/recipes/413137-call-a-functionmethod-x-times-per-second/
+def timed_call(callback, calls_per_second, *args, **kw):
+    """
+    Create an iterator which will call a function a set number
+    of times per second.
+    """
+    time_time = time.time
+    start = time_time()
+    period = 1.0 / calls_per_second
+    while True:
+        if (time_time() - start) > period:
+            start += period
+            callback(*args, **kw)
+        yield None
 
 
 def run_user_example(client):
@@ -66,14 +87,10 @@ def get_folder_shared_link(client):
         print('Delete folder collab folder succeeded: {0}'.format(collab_folder.delete()))
 
 
-def upload_file(client):
-    root_folder = client.folder(folder_id='0')
+def upload_file(client,folder_object):
     file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'file.txt')
-    a_file = root_folder.upload(file_path, file_name='i-am-a-file.txt')
-    try:
-        print('{0} uploaded: '.format(a_file.get()['name']))
-    finally:
-        print('Delete i-am-a-file.txt succeeded: {0}'.format(a_file.delete()))
+    a_file = folder_object.upload(file_path, file_name='i-am-a-file.txt')
+    print('{0} uploaded: '.format(a_file.get()['name']))
 
 
 def upload_accelerator(client):
@@ -260,38 +277,74 @@ def run_metadata_example(client):
         foo.delete()
 
 
-def run_examples(oauth):
+def setup_upload_test(oauth,client):
+    """
+    Setup upload accounts
+    """
 
-    client = Client(oauth)
+    root_folder = client.folder(folder_id='0')
+    subfolder_no_collabs = root_folder.create_subfolder('subfolder with no collabs')
+    subfolder_collabs = root_folder.create_subfolder('subfolder with 5 collabs')
 
-    run_user_example(client)
-    run_folder_examples(client)
-    run_collab_examples(client)
-    rename_folder(client)
-    get_folder_shared_link(client)
-    upload_file(client)
-    rename_file(client)
-    update_file(client)
-    search_files(client)
-    copy_item(client)
-    move_item(client)
-    get_events(client)
-    get_latest_stream_position(client)
-    # long_poll(client)
+    print('Folder {0} created'.format(subfolder_collabs.get()['name']))
+    collaboration1 = subfolder_collabs.add_collaborator('someone1@example.com', CollaborationRole.VIEWER)
+    collaboration2 = subfolder_collabs.add_collaborator('someone2@example.com', CollaborationRole.PREVIEWER)
+    collaboration3 = subfolder_collabs.add_collaborator('someone3@example.com', CollaborationRole.EDITOR)
+    collaboration4 = subfolder_collabs.add_collaborator('someone4@example.com', CollaborationRole.EDITOR)
+    collaboration5 = subfolder_collabs.add_collaborator('someone5@example.com', CollaborationRole.CO_OWNER)
 
-    # Enterprise accounts only
-    run_groups_example(client)
-    run_metadata_example(client)
+def run_upload_test(oauth,client):
+    """
+    Run upload tests on existing folders
+    """
 
-    # Premium Apps only
-    upload_accelerator(client)
+    root_folder = client.folder(folder_id='0')
+    items = root_folder.get_items(limit=100, offset=0)
+    for item in items:
+        if item.name == "subfolder with 5 collabs":
+            subfolder_collabs = item
+        elif item.name == "subfolder with no collabs":
+            subfolder_no_collabs = item
+
+    # TODO: Create round robin of files that need to be uploaded
+    upload_file(client,root_folder)
+    upload_file(client,subfolder_no_collabs)
+
+# def run_api_test(oauth,client):
+
+#     run_user_example(client)
+#     run_folder_examples(client)
+#     run_collab_examples(client)
+#     rename_folder(client)
+#     get_folder_shared_link(client)
+#     upload_file(client)
+#     rename_file(client)
+#     update_file(client)
+#     search_files(client)
+#     copy_item(client)
+#     move_item(client)
+#     get_events(client)
+#     get_latest_stream_position(client)
+#     # long_poll(client)
+
+#     # Enterprise accounts only
+#     run_groups_example(client)
+#     run_metadata_example(client)
+
+#     # Premium Apps only
+#     upload_accelerator(client)
+
+#     scheduler.run()
 
 
 def main():
 
     # Please notice that you need to put in your client id and client secret in demo/auth.py in order to make this work.
     oauth, _, _ = authenticate()
-    run_examples(oauth)
+    client = Client(oauth)
+    # setup_upload_test(oauth,client)
+    run_upload_test(oauth,client)
+    # run_api_test(oauth,client)
     os._exit(0)
 
 if __name__ == '__main__':
